@@ -47,8 +47,11 @@ your-username/daily-arXiv-ai-enhanced
 	
 - 1.	打开 Settings → Pages。
 - 2.	在 Build and deployment 里：
+  
 	•	Source → 选择 Deploy from a branch
+
 	•	Branch → 选择 main
+
 	•	Folder → 选择 / (root)
 
 #### 3.	等几分钟，访问：
