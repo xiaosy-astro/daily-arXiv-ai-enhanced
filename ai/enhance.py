@@ -83,7 +83,7 @@ def process_all_items(data: List[Dict], model_name: str, language: str, max_work
     """并行处理所有数据项"""
     # llm = ChatOpenAI(model=model_name).with_structured_output(Structure, method="function_calling")
 
-    llm = ChatOpenAI(model=model_name)
+    llm = ChatOpenAI(model=model_name,model_kwargs={"response_format": {"type": "json_object"}})
     print('Connect to:', model_name, file=sys.stderr)
     
     prompt_template = ChatPromptTemplate.from_messages([
