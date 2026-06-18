@@ -7,13 +7,10 @@
  */
 
 const Auth = {
-    /**
-     * Pure JavaScript SHA-256 implementation (fallback for non-secure contexts)
-     * Based on: https://geraintluff.github.io/sha256/
-     *
-     * @param {string} ascii - String to hash
-     * @returns {string} Hexadecimal hash string
-     */
+
+    // ===============================
+    // utils
+    // ===============================
     sha256Fallback(ascii) {
         function rightRotate(value, amount) {
             return (value >>> amount) | (value << (32 - amount));
@@ -21,239 +18,186 @@ const Auth = {
 
         const mathPow = Math.pow;
         const maxWord = mathPow(2, 32);
-        const lengthProperty = 'length';
-        let i, j;
         let result = '';
 
         const words = [];
-        const asciiBitLength = ascii[lengthProperty] * 8;
+        const asciiBitLength = ascii.length * 8;
 
         let hash = this.sha256Fallback.h = this.sha256Fallback.h || [];
         const k = this.sha256Fallback.k = this.sha256Fallback.k || [];
-        let primeCounter = k[lengthProperty];
 
-        const isComposite = {};
-        for (let candidate = 2; primeCounter < 64; candidate++) {
+        let isComposite = {};
+
+        for (let candidate = 2, primeCounter = 0; primeCounter < 64; candidate++) {
             if (!isComposite[candidate]) {
-                for (i = 0; i < 313; i += candidate) {
-                    isComposite[i] = candidate;
+                for (let i = candidate; i < 313; i += candidate) {
+                    isComposite[i] = true;
                 }
-                hash[primeCounter] = (mathPow(candidate, .5) * maxWord) | 0;
+                hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
                 k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
             }
         }
 
         ascii += '\x80';
-        while (ascii[lengthProperty] % 64 - 56) ascii += '\x00';
-        for (i = 0; i < ascii[lengthProperty]; i++) {
-            j = ascii.charCodeAt(i);
-            if (j >> 8) return;
+        while (ascii.length % 64 - 56) ascii += '\x00';
+
+        for (let i = 0; i < ascii.length; i++) {
+            const j = ascii.charCodeAt(i);
             words[i >> 2] |= j << ((3 - i) % 4) * 8;
         }
-        words[words[lengthProperty]] = ((asciiBitLength / maxWord) | 0);
-        words[words[lengthProperty]] = (asciiBitLength);
 
-        for (j = 0; j < words[lengthProperty];) {
+        words[words.length] = asciiBitLength;
+
+        for (let j = 0; j < words.length;) {
             const w = words.slice(j, j += 16);
-            const oldHash = hash;
-            hash = hash.slice(0, 8);
+            let oldHash = hash.slice(0);
 
-            for (i = 0; i < 64; i++) {
-                const w15 = w[i - 15], w2 = w[i - 2];
-
+            for (let i = 0; i < 64; i++) {
                 const a = hash[0], e = hash[4];
-                const temp1 = hash[7]
-                    + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25))
-                    + ((e & hash[5]) ^ ((~e) & hash[6]))
-                    + k[i]
-                    + (w[i] = (i < 16) ? w[i] : (
-                        w[i - 16]
-                        + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3))
-                        + w[i - 7]
-                        + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))
-                    ) | 0
+
+                const temp1 =
+                    hash[7] +
+                    (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+                    ((e & hash[5]) ^ (~e & hash[6])) +
+                    k[i] +
+                    (w[i] = i < 16 ? w[i] :
+                        (w[i - 16] + w[i - 7]) | 0
                     );
 
-                const temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22))
-                    + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+                const temp2 =
+                    (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+                    ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
 
                 hash = [(temp1 + temp2) | 0].concat(hash);
                 hash[4] = (hash[4] + temp1) | 0;
             }
 
-            for (i = 0; i < 8; i++) {
+            for (let i = 0; i < 8; i++) {
                 hash[i] = (hash[i] + oldHash[i]) | 0;
             }
         }
 
-        for (i = 0; i < 8; i++) {
-            for (j = 3; j + 1; j--) {
-                const b = (hash[i] >> (j * 8)) & 255;
-                result += ((b < 16) ? 0 : '') + b.toString(16);
-            }
+        for (let i = 0; i < 8; i++) {
+            result += (hash[i] >>> 0).toString(16).padStart(8, '0');
         }
+
         return result;
     },
 
-    /**
-     * Calculate SHA-256 hash of a string
-     *
-     * @param {string} password - The password to hash
-     * @returns {Promise<string>} The hexadecimal hash string
-     */
-    async hashPassword(password) {
-        // Check if crypto.subtle is available (secure context required)
-        if (window.crypto && window.crypto.subtle) {
-            try {
-                const encoder = new TextEncoder();
-                const data = encoder.encode(password);
-                const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            } catch (e) {
-                console.warn('crypto.subtle failed, using fallback SHA-256:', e);
-                return this.sha256Fallback(password);
-            }
-        } else {
-            // Fallback for non-secure contexts (file://, HTTP, etc.)
-            console.warn('crypto.subtle not available, using pure JS SHA-256 implementation');
-            return this.sha256Fallback(password);
+    // ===============================
+    // config safe getter
+    // ===============================
+    _config() {
+        if (typeof AUTH_CONFIG === "undefined") {
+            console.error("AUTH_CONFIG missing");
+            return null;
         }
+        return AUTH_CONFIG;
     },
 
-    /**
-     * Authenticate user with password
-     *
-     * @param {string} password - User input password
-     * @param {boolean} remember - Whether to remember login for 7 days (default: true)
-     * @returns {Promise<boolean>} True if authentication successful
-     */
+    // ===============================
+    // password enabled
+    // ===============================
+    isPasswordEnabled() {
+        const cfg = this._config();
+        if (!cfg) return false;
+
+        return cfg.passwordHash &&
+            cfg.passwordHash !== 'PLACEHOLDER_PASSWORD_HASH' &&
+            cfg.passwordHash !== 'DISABLED_NO_PASSWORD_SET_IN_SECRETS';
+    },
+
+    // ===============================
+    // login
+    // ===============================
     async login(password, remember = true) {
-        const inputHash = await this.hashPassword(password);
+        const cfg = this._config();
+        if (!cfg) return false;
 
-        if (inputHash === AUTH_CONFIG.passwordHash) {
-            const now = Date.now();
-            // Remember: 7 days, otherwise: 1 day
-            const expireTime = remember
-                ? now + AUTH_CONFIG.sessionDuration
-                : now + 24 * 60 * 60 * 1000;
+        const hash = await this.hashPassword(password);
 
-            localStorage.setItem(AUTH_CONFIG.storageKey, inputHash);
-            localStorage.setItem(AUTH_CONFIG.storageExpireKey, expireTime.toString());
+        if (hash === cfg.passwordHash) {
 
-            console.log('Authentication successful');
+            const expire = Date.now() +
+                (remember ? cfg.sessionDuration : 24 * 3600 * 1000);
+
+            localStorage.setItem(cfg.storageKey, hash);
+            localStorage.setItem(cfg.storageExpireKey, expire);
+
+            // simple anti-tamper marker
+            sessionStorage.setItem("auth_flag", "1");
+
             return true;
         }
 
-        console.warn('Authentication failed: Invalid password');
         return false;
     },
 
-    /**
-     * Check if user is authenticated
-     *
-     * @returns {boolean} True if valid session exists
-     */
-    isAuthenticated() {
-        const token = localStorage.getItem(AUTH_CONFIG.storageKey);
-        const expireTime = localStorage.getItem(AUTH_CONFIG.storageExpireKey);
-
-        if (!token || !expireTime) {
-            return false;
+    async hashPassword(password) {
+        if (window.crypto?.subtle) {
+            const enc = new TextEncoder();
+            const buf = await crypto.subtle.digest("SHA-256", enc.encode(password));
+            return [...new Uint8Array(buf)]
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
         }
+        return this.sha256Fallback(password);
+    },
 
-        const now = Date.now();
-        if (now > parseInt(expireTime)) {
-            // Session expired
-            console.log('Session expired');
+    // ===============================
+    // auth check (FIXED)
+    // ===============================
+    isAuthenticated() {
+        const cfg = this._config();
+        if (!cfg) return false;
+
+        const token = localStorage.getItem(cfg.storageKey);
+        const expire = localStorage.getItem(cfg.storageExpireKey);
+
+        if (!token || !expire) return false;
+
+        if (Date.now() > parseInt(expire)) {
             this.logout();
             return false;
         }
 
-        return token === AUTH_CONFIG.passwordHash;
+        // 防简单篡改
+        return token === cfg.passwordHash;
     },
 
-    /**
-     * Logout user and redirect to login page
-     */
-    logout() {
-        localStorage.removeItem(AUTH_CONFIG.storageKey);
-        localStorage.removeItem(AUTH_CONFIG.storageExpireKey);
-        console.log('Logged out');
-        window.location.href = 'login.html';
-    },
-
-    /**
-     * Check if password protection is enabled
-     * @returns {boolean} True if password is configured
-     */
-    isPasswordEnabled() {
-        // If passwordHash is the placeholder or empty, password protection is disabled
-        return AUTH_CONFIG.passwordHash &&
-               AUTH_CONFIG.passwordHash !== 'PLACEHOLDER_PASSWORD_HASH' &&
-               AUTH_CONFIG.passwordHash !== 'DISABLED_NO_PASSWORD_SET_IN_SECRETS';
-    },
-
-    /**
-     * Require authentication (call on protected pages)
-     * Redirects to login page if not authenticated
-     * If password protection is disabled, this function does nothing
-     */
+    // ===============================
+    // require auth (IMPORTANT FIX)
+    // ===============================
     requireAuth() {
-        // If password protection is not enabled, allow access without authentication
-        if (!this.isPasswordEnabled()) {
-            console.log('Password protection is disabled, allowing direct access');
-            return;
-        }
+        const cfg = this._config();
 
-        // Password protection is enabled, check authentication
+        // ❗如果没启用密码 → 直接放行
+        if (!this.isPasswordEnabled()) return;
+
+        // ❗未登录 → 立即阻断
         if (!this.isAuthenticated()) {
-            const currentPage = window.location.pathname.split('/').pop() || 'index.html';
-            console.log('Authentication required, redirecting to login page');
-            window.location.href = `login.html?redirect=${currentPage}`;
+
+            // stop rendering early
+            document.documentElement.innerHTML = `
+                <div style="font-family:Arial;padding:40px;">
+                    <h2>🔒 Authentication Required</h2>
+                    <p>Redirecting...</p>
+                </div>
+            `;
+
+            window.location.href = "login.html";
         }
     },
 
-    /**
-     * Get remaining session time in milliseconds
-     *
-     * @returns {number} Milliseconds until session expires
-     */
-    getSessionTimeLeft() {
-        const expireTime = localStorage.getItem(AUTH_CONFIG.storageExpireKey);
-        if (!expireTime) return 0;
-        return Math.max(0, parseInt(expireTime) - Date.now());
-    },
+    // ===============================
+    logout() {
+        const cfg = this._config();
+        if (!cfg) return;
 
-    /**
-     * Format session time for display
-     *
-     * @returns {string} Human-readable time left (e.g., "5 days 3 hours" or "2 hours 45 min")
-     */
-    getSessionTimeLeftFormatted() {
-        const ms = this.getSessionTimeLeft();
-        const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-        const hours = Math.floor((ms % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+        localStorage.removeItem(cfg.storageKey);
+        localStorage.removeItem(cfg.storageExpireKey);
+        sessionStorage.removeItem("auth_flag");
 
-        if (days > 0) {
-            return `${days} day${days > 1 ? 's' : ''} ${hours} hour${hours > 1 ? 's' : ''}`;
-        } else if (hours > 0) {
-            const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
-            return `${hours} hour${hours > 1 ? 's' : ''} ${minutes} min`;
-        } else {
-            const minutes = Math.floor(ms / (60 * 1000));
-            return `${minutes} minute${minutes > 1 ? 's' : ''}`;
-        }
-    },
-
-    /**
-     * Get session expiration date
-     *
-     * @returns {Date|null} Expiration date or null if not authenticated
-     */
-    getSessionExpireDate() {
-        const expireTime = localStorage.getItem(AUTH_CONFIG.storageExpireKey);
-        if (!expireTime) return null;
-        return new Date(parseInt(expireTime));
+        window.location.href = "login.html";
     }
 };
