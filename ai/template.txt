@@ -3,4 +3,3 @@ Please analyze the following abstract of papers.
 Content:
 {content}
 
-Please respond in JSON format.
